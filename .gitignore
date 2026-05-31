@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# input files copied off the Windows partition, and the recovered key --
+# keep these out of the repo
+SYSTEM
+SECURITY
+Goodix_Cache.bin
+*.psk
