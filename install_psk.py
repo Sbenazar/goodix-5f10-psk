@@ -24,6 +24,7 @@ with mode 0600 / owner root. Override with --dest.
 
 import argparse
 import os
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -35,12 +36,50 @@ DEFAULT_DEST = "/var/lib/fprint/goodix-5f10/psk"
 PSK_LEN = 32
 
 
+def _restore_selinux_context(*paths: str) -> None:
+    """Relabel `paths` the way the local SELinux policy wants, if there is one.
+
+    See Sbenazar/goodix-5f10-libfprint#2 for why the PSK needs this."""
+    try:
+        if subprocess.run(["selinuxenabled"], check=False).returncode != 0:
+            return
+    except FileNotFoundError:
+        return
+
+    hint = ("If fprintd cannot read the PSK, label it by hand:\n"
+            "    sudo chcon -t fprintd_var_lib_t %s" % paths[-1])
+    try:
+        rc = subprocess.run(["restorecon", *paths], check=False).returncode
+    except FileNotFoundError:
+        print("warning: SELinux is on but restorecon is missing. " + hint,
+              file=sys.stderr)
+        return
+    if rc != 0:
+        print("warning: restorecon exited %d. " % rc + hint, file=sys.stderr)
+
+
+def _makedirs_tracked(path: str) -> list:
+    """Create `path`, and report which directories that actually took, outermost
+    first. os.makedirs can make more than one level -- with no /var/lib/fprint
+    on the machine it creates that as well -- and each one inherits its parent's
+    SELinux type, so the caller can relabel the lot instead of leaving half a
+    mislabelled tree behind it."""
+    missing = []
+    probe = os.path.abspath(path)
+    while not os.path.isdir(probe):
+        missing.append(probe)
+        probe = os.path.dirname(probe)
+    os.makedirs(path, exist_ok=True)
+    missing.reverse()
+    return missing
+
+
 def _atomic_install(dest: str, data: bytes, *, mode: int = 0o600) -> None:
     """Write `data` to `dest` atomically: write to a sibling tmp file, fsync,
     chmod, rename. Avoids leaving a half-written PSK file if interrupted.
     Caller is responsible for being root if `dest` is a privileged path."""
     dest_dir = os.path.dirname(os.path.abspath(dest)) or "."
-    os.makedirs(dest_dir, exist_ok=True)
+    fresh = _makedirs_tracked(dest_dir)
     tmp = dest + ".tmp"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
     try:
@@ -58,6 +97,13 @@ def _atomic_install(dest: str, data: bytes, *, mode: int = 0o600) -> None:
         except OSError:
             pass
         raise
+
+    targets = fresh + [dest_dir, dest]
+    fprint_dir = os.path.dirname(os.path.dirname(DEFAULT_DEST))
+    if os.path.abspath(dest).startswith(fprint_dir + os.sep):
+        # An older version of this installer could have left it mislabelled.
+        targets.insert(0, fprint_dir)
+    _restore_selinux_context(*dict.fromkeys(targets))
 
 
 def _resolve_psk(args, ap) -> bytes:

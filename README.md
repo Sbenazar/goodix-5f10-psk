@@ -119,6 +119,17 @@ fprintd-enroll
 
 That's the whole dual-boot setup.
 
+If the machine runs SELinux, the installer relabels the key on the way out. It
+has to: a file created under `/var/lib` inherits the label of the directory it
+lands in, and if fprintd has never started here, that directory is one we just
+made ourselves with the wrong one. If `restorecon` is missing you get a warning
+and can do it by hand:
+
+```sh
+sudo chcon -t fprintd_var_lib_t /var/lib/fprint/goodix-5f10/psk
+sudo systemctl restart fprintd
+```
+
 ## Usage -- extraction only
 
 If you just want to inspect or pipe the recovered PSK without installing
