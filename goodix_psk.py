@@ -188,19 +188,26 @@ def unprotect_psk(cache_bytes: bytes, masterkey: bytes, entropy: bytes) -> bytes
 def resolve_masterkey_file(masterkey_path, cache_bytes):
     """Resolve the master-key file the cache blob is bound to.
 
-    `masterkey_path` may be the master-key file itself, or a directory (e.g. the
-    DPAPI 'Protect/S-1-5-18/User' folder) containing GUID-named files; in the
-    latter case we pick the one matching the cache blob's GuidMasterKey.
+    `masterkey_path` may be the master-key file itself, or a directory
+    containing GUID-named keys; in the latter case we pick the one matching the
+    cache blob's GuidMasterKey. The key doesn't always sit in the directory you
+    point at: it can be a level down (S-1-5-18/User/) or up in S-1-5-18/ itself,
+    depending on the driver (goodix-5f10-libfprint issue #4). If it's not
+    right there, walk down.
     """
     guid = blob_masterkey_guid(cache_bytes)
-    if os.path.isdir(masterkey_path):
-        candidate = os.path.join(masterkey_path, guid)
-        if os.path.isfile(candidate):
-            return candidate
-        raise PSKExtractError(
-            "no master-key file named %s found in directory %s"
-            % (guid, masterkey_path))
-    return masterkey_path
+    if not os.path.isdir(masterkey_path):
+        return masterkey_path
+    candidate = os.path.join(masterkey_path, guid)
+    if os.path.isfile(candidate):
+        return candidate
+    for dirpath, _dirs, files in os.walk(masterkey_path):
+        if guid in files:
+            return os.path.join(dirpath, guid)
+    raise PSKExtractError(
+        "no master-key file named %s found under %s -- point --masterkey at the "
+        "S-1-5-18 folder and it will be found wherever the driver put it"
+        % (guid, masterkey_path))
 
 
 def extract_psk(system_hive, security_hive, masterkey_file, cache_file):
@@ -236,8 +243,11 @@ def extract_psk(system_hive, security_hive, masterkey_file, cache_file):
 _AUTO_PATHS = {
     'system':   ['Windows/System32/config/SYSTEM'],
     'security': ['Windows/System32/config/SECURITY'],
+    # Point at S-1-5-18 itself, not S-1-5-18/User: the key sits in User/ on some
+    # machines and in S-1-5-18/ directly on others (goodix-5f10-libfprint#4),
+    # and resolve_masterkey_file walks down from here either way. Anchoring
+    # on User/ would miss a key that lives one level up.
     'masterkey_dir': [
-        'Windows/System32/Microsoft/Protect/S-1-5-18/User',
         'Windows/System32/Microsoft/Protect/S-1-5-18',
     ],
     'cache': [

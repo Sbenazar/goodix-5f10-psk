@@ -87,7 +87,7 @@ You need, from the Windows partition:
 |-------|------------------|
 | SYSTEM hive | `C:\Windows\System32\config\SYSTEM` |
 | SECURITY hive | `C:\Windows\System32\config\SECURITY` |
-| DPAPI master key(s) | `C:\Windows\System32\Microsoft\Protect\S-1-5-18\User\<GUID>` |
+| DPAPI master key(s) | under `C:\Windows\System32\Microsoft\Protect\S-1-5-18\` -- in the `User\` subfolder on some machines, in `S-1-5-18\` itself on others |
 | Goodix cache blob | `C:\Windows\ServiceProfiles\LocalService\AppData\Local\Goodix\FingerPrint\Goodix_Cache.bin` (location can vary by driver version; also seen under `C:\ProgramData\Goodix\`) |
 
 The cleanest way is to mount the Windows partition **read-only** from Linux
@@ -151,7 +151,9 @@ Explicit files instead of `--win-root`:
 
 `--masterkey` accepts either the master-key file itself or a **directory**
 of GUID-named keys (the tool auto-selects the one the cache blob is bound
-to).
+to). Point it at the `S-1-5-18` folder and don't worry about which subfolder
+the key is in -- the driver puts it under `User\` on some machines and directly
+in `S-1-5-18\` on others, and the tool searches down from wherever you point it.
 
 Other flags:
 
