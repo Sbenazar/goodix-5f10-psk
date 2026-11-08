@@ -33,7 +33,6 @@ Run with --help for CLI usage.
 """
 
 import argparse
-import glob
 import hashlib
 import os
 import sys
@@ -265,11 +264,27 @@ def _first_existing(win_root, candidates):
             return path
     # case-insensitive fallback (Windows paths on a case-sensitive mount)
     for rel in candidates:
-        pat = os.path.join(win_root, *(p + '*' for p in rel.split('/')))
-        hits = glob.glob(pat, recursive=False)
-        if hits:
-            return hits[0]
+        hit = _walk_ci(win_root, rel.split('/'))
+        if hit:
+            return hit
     return None
+
+
+def _walk_ci(root, segments):
+    # Descend one segment at a time, matching each name case-insensitively but
+    # in full. Appending '*' and globbing would let SYSTEM match SYSTEM.LOG1
+    # (the registry WAL file), which is not the key we want (#2).
+    path = root
+    for seg in segments:
+        want = seg.lower()
+        try:
+            match = next((e for e in os.listdir(path) if e.lower() == want), None)
+        except OSError:
+            return None
+        if match is None:
+            return None
+        path = os.path.join(path, match)
+    return path
 
 
 def _resolve_auto(win_root):
